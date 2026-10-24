@@ -3,81 +3,78 @@ import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { GoogleGenAI } from '@google/genai';
 
-// 1. Initialize API Clients using Environment Variables
 const parser = new Parser();
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
-// Replace this URL with any RSS feed you want (e.g., TechCrunch, BBC, etc.)
-const RSS_FEED_URL = 'https://techcrunch.com'; 
+// Defining a dynamic array of target categories and their RSS endpoints
+const FEEDS = [
+  { category: '🎬 DAILY MOVIES', url: 'https://www.polygon.com/rss/index.xml' },
+  { category: '🎮 VIDEO GAMES', url: 'https://feeds.feedburner.com/ign/all' },
+  { category: '🌍 CRAZY WORLD EVENTS', url: 'https://google.com' }
+];
+
+async function scrapeArticleText(url) {
+  try {
+    const { data: html } = await axios.get(url, { timeout: 5000 });
+    const $ = cheerio.load(html);
+    let articleText = '';
+    $('p').each((i, el) => { articleText += $(el).text() + '\n'; });
+    return articleText.substring(0, 4000); // Keeping token sizes safe
+  } catch {
+    return ''; // Fallback if a specific page blocks basic scraping scraping
+  }
+}
 
 async function runCurator() {
   try {
-    console.log('🔄 Fetching RSS feed...');
-    const feed = await parser.parseURL(RSS_FEED_URL);
-    
-    // Get the most recent article
-    const latestArticle = feed.items[0];
-    if (!latestArticle) {
-      console.log('❌ No articles found in feed.');
-      return;
-    }
-    
-    console.log(`📰 Found article: "${latestArticle.title}"`);
-    console.log('🕸️ Scraping webpage content...');
-    
-    // 2. Fetch and Scrape the Webpage Content
-    const { data: html } = await axios.get(latestArticle.link);
-    const $ = cheerio.load(html);
-    
-    // Grab text specifically from paragraph tags to avoid navigation/sidebar clutter
-    let articleText = '';
-    $('p').each((i, el) => {
-      articleText += $(el).text() + '\n';
-    });
-    
-    // Truncate text if it's excessively long to save token bandwidth
-    const cleanText = articleText.substring(0, 6000);
+    let combinedEmbeds = [];
 
-    console.log('🤖 Sending text to Gemini AI for processing...');
-    
-    // 3. Connect to Gemini AI
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `You are an expert tech industry research analyst. 
-      Read the following article text. If it is clickbait or low-value, reply with 'SKIP'. 
-      Otherwise, provide a punchy summary including:
-      - The main takeaway in 1 sentence.
-      - 3 bullet points highlighting the most critical facts or data mentioned.
+    for (const feedConfig of FEEDS) {
+      console.log(`🔄 Fetching ${feedConfig.category} feed...`);
+      const feed = await parser.parseURL(feedConfig.url);
+      const latestArticle = feed.items[0]; // Isolate the absolute newest item
+
+      if (!latestArticle) continue;
+
+      console.log(`🕸️ Processing: "${latestArticle.title}"`);
+      const rawBody = await scrapeArticleText(latestArticle.link);
       
-      Article Text: ${cleanText}`,
-    });
+      // Fallback text context to ensure Gemini always has baseline material
+      const analysisContext = rawBody.length > 200 ? rawBody : latestArticle.content || latestArticle.title;
 
-    const summaryOutput = response.text.trim();
+      console.log(`🤖 Sending to Gemini...`);
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `You are an elite pop-culture, gaming, and world news summary bot.
+        Analyze this text item for the category: "${feedConfig.category}".
+        Provide a ultra-punchy summary layout containing:
+        - 1 bold main sentence takeaway.
+        - 3 short, emoji-anchored bullet points explaining the core facts.
+        
+        Content Source Material: ${analysisContext}`,
+      });
 
-    if (summaryOutput.includes('SKIP')) {
-      console.log('⏩ AI flagged this article as low-value/clickbait. Skipping.');
-      return;
+      combinedEmbeds.push({
+        title: `${feedConfig.category}: ${latestArticle.title}`,
+        url: latestArticle.link,
+        description: response.text.trim(),
+        color: feedConfig.category.includes('MOVIES') ? 15105570 : feedConfig.category.includes('GAMES') ? 3447003 : 16711680,
+        timestamp: new Date().toISOString()
+      });
     }
 
-    // 4. Format and Send the Payload to Discord
-    console.log('🚀 Sending digest to Discord...');
-    const discordPayload = {
-      embeds: [{
-        title: latestArticle.title,
-        url: latestArticle.link,
-        description: summaryOutput,
-        color: 3447003, // A nice blue accent color
-        timestamp: new Date().toISOString(),
-        footer: { text: "AI Automation Curator" }
-      }]
-    };
-
-    await axios.post(DISCORD_WEBHOOK_URL, discordPayload);
-    console.log('✅ Workflow completed successfully!');
+    if (combinedEmbeds.length > 0) {
+      console.log('🚀 Blasting consolidated digest bundle to Discord...');
+      await axios.post(DISCORD_WEBHOOK_URL, {
+        content: "🌅 **Your Multi-Topic Morning Dashboard Blueprint Is Ready!**",
+        embeds: combinedEmbeds
+      });
+      console.log('✅ Entire multi-workflow executed successfully!');
+    }
 
   } catch (error) {
-    console.error('❌ Workflow failed:', error.message);
+    console.error('❌ Automation workflow broke:', error.message);
   }
 }
 
