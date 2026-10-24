@@ -6,9 +6,10 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "" });
 
+// Using Google News search feeds because they are 100% stable and never block scripts
 const FEEDS = [
-  { category: '🎬 DAILY MOVIES', url: 'https://gamespot.com' },
-  { category: '🎮 VIDEO GAMES', url: 'https://gamespot.com' }, // Bypassing GameInformer to use highly stable Gamespot news
+  { category: '🎬 DAILY MOVIES', url: 'https://google.com' },
+  { category: '🎮 VIDEO GAMES', url: 'https://google.com' },
   { category: '🌍 CRAZY WORLD EVENTS', url: 'https://google.com' }
 ];
 
@@ -18,36 +19,42 @@ async function runCurator() {
 
     for (const feedConfig of FEEDS) {
       console.log(`🔄 Fetching ${feedConfig.category} data...`);
-      const { data: xmlData } = await axios.get(feedConfig.url, { timeout: 6000 });
+      
+      // Adding standard User-Agent headers to masquerade as a normal Chrome Browser
+      const { data: xmlData } = await axios.get(feedConfig.url, { 
+        timeout: 8000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
       
       const jsonObj = parser.parse(xmlData);
-      const channel = jsonObj?.rss?.channel;
-      const items = channel?.item;
+      const items = jsonObj?.rss?.channel?.item;
       
-      if (!items) {
-        console.log(`⚠️ No items found in ${feedConfig.category} feed structure. Skipping.`);
+      if (!items || items.length === 0) {
+        console.log(`⚠️ No news found for ${feedConfig.category}`);
         continue;
       }
       
-      // Target the absolute newest item array entry safely
+      // Grab the single newest article safely
       const latestArticle = Array.isArray(items) ? items[0] : items;
       
       const title = latestArticle.title || 'Untitled Update';
       const link = latestArticle.link || '#';
-      const description = latestArticle.description || latestArticle.summary || title;
+      const description = latestArticle.description || title;
 
-      console.log(`🤖 Found article: "${title}". Sending to Gemini...`);
+      console.log(`🤖 Processing with Gemini: "${title}"`);
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: `You are an elite pop-culture, gaming, and world news summary bot.
-        Analyze the following article title and summary for the category: "${feedConfig.category}".
+        Analyze the following breaking news headline and summary context for the category: "${feedConfig.category}".
         Provide an ultra-punchy summary layout containing:
         - 1 bold main sentence takeaway.
         - 3 short, emoji-anchored bullet points explaining the core facts.
         
-        Title: ${title}
-        Content: ${description}`,
+        Headline: ${title}
+        Context: ${description}`,
       });
 
       combinedEmbeds.push({
@@ -62,7 +69,7 @@ async function runCurator() {
     if (combinedEmbeds.length > 0) {
       console.log(`🚀 Sending ${combinedEmbeds.length} summaries to Discord...`);
       await axios.post(DISCORD_WEBHOOK_URL, {
-        content: "🌅 **Your Clean Multi-Topic Dashboard Is Ready!**",
+        content: "🌅 **Your Multi-Topic Dashboard Is Ready!**",
         embeds: combinedEmbeds
       });
       console.log('✅ Entire multi-workflow executed successfully!');
