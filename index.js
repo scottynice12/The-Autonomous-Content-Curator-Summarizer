@@ -7,10 +7,11 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
 const FEEDS = [
-  { category: '🎬 DAILY MOVIES', url: 'https://polygon.com' },
+  { category: '🎬 DAILY MOVIES', url: 'https://feedburner.com' },
   { category: '🎮 VIDEO GAMES', url: 'https://feedburner.com' },
   { category: '🌍 CRAZY WORLD EVENTS', url: 'https://google.com' }
 ];
+
 
 async function runCurator() {
   try {
