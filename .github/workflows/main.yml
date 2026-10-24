@@ -1,0 +1,35 @@
+name: Run Daily AI Content Curator
+
+on:
+  schedule:
+    # This runs the script every single day at 8:00 AM UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    # This adds a manual "Play" button in GitHub so you can test it instantly
+
+jobs:
+  run-curator:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Download your code from the repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Node.js on GitHub's temporary runner
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 3. Install the dependencies listed in your package.json
+      - name: Install Dependencies
+        run: npm install
+
+      # 4. Execute your index.js script safely using GitHub Secrets
+      - name: Run Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node index.js
