@@ -6,10 +6,9 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "" });
 
-// Using highly stable feeds that don't throw broken attribute errors
 const FEEDS = [
-  { category: '🎬 DAILY MOVIES', url: 'https://gamespot.com' }, // Great mixed movie/gaming news
-  { category: '🎮 VIDEO GAMES', url: 'https://gameinformer.com' },   // Alternate premium gaming news feed
+  { category: '🎬 DAILY MOVIES', url: 'https://gamespot.com' },
+  { category: '🎮 VIDEO GAMES', url: 'https://gamespot.com' }, // Bypassing GameInformer to use highly stable Gamespot news
   { category: '🌍 CRAZY WORLD EVENTS', url: 'https://google.com' }
 ];
 
@@ -18,21 +17,26 @@ async function runCurator() {
     let combinedEmbeds = [];
 
     for (const feedConfig of FEEDS) {
-      console.log(`🔄 Fetching ${feedConfig.category} headline data...`);
+      console.log(`🔄 Fetching ${feedConfig.category} data...`);
       const { data: xmlData } = await axios.get(feedConfig.url, { timeout: 6000 });
       
       const jsonObj = parser.parse(xmlData);
-      const items = jsonObj?.rss?.channel?.item || jsonObj?.feed?.entry;
+      const channel = jsonObj?.rss?.channel;
+      const items = channel?.item;
       
-      if (!items || items.length === 0) continue;
+      if (!items) {
+        console.log(`⚠️ No items found in ${feedConfig.category} feed structure. Skipping.`);
+        continue;
+      }
       
-      // Grab the absolute newest individual item from the feed list
+      // Target the absolute newest item array entry safely
       const latestArticle = Array.isArray(items) ? items[0] : items;
+      
       const title = latestArticle.title || 'Untitled Update';
-      const link = latestArticle.link?.href || latestArticle.link || '#';
+      const link = latestArticle.link || '#';
       const description = latestArticle.description || latestArticle.summary || title;
 
-      console.log(`🤖 Processing with Gemini: "${title}"`);
+      console.log(`🤖 Found article: "${title}". Sending to Gemini...`);
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -56,12 +60,14 @@ async function runCurator() {
     }
 
     if (combinedEmbeds.length > 0) {
-      console.log('🚀 Blasting consolidated digest bundle to Discord...');
+      console.log(`🚀 Sending ${combinedEmbeds.length} summaries to Discord...`);
       await axios.post(DISCORD_WEBHOOK_URL, {
         content: "🌅 **Your Clean Multi-Topic Dashboard Is Ready!**",
         embeds: combinedEmbeds
       });
       console.log('✅ Entire multi-workflow executed successfully!');
+    } else {
+      console.log('❌ No embeds were created from any feeds today.');
     }
 
   } catch (error) {
@@ -70,4 +76,3 @@ async function runCurator() {
 }
 
 runCurator();
-  
